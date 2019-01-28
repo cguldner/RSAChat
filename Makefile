@@ -3,12 +3,12 @@ CPP = g++
 COMPILERFLAGS = -g -Wall -Wextra -Wno-sign-compare -Wshadow -Wno-unused-parameter -std=c++11
 
 #Any libraries you might need linked in.
-LINKLIBS = -lpthread
+LINKLIBS = -lpthread -lcrypto -lssl
 
 #The components of each program. When you create a src/foo.c source file, add obj/foo.o here, separated
 #by a space (e.g. SOMEOBJECTS = obj/foo.o obj/bar.o obj/baz.o).
-SERVEROBJECTS = obj/server.o obj/shared.o
-CLIENTOBJECTS = obj/client.o obj/shared.o
+SERVEROBJECTS = obj/server.o obj/shared.o obj/rsa.o
+CLIENTOBJECTS = obj/client.o obj/shared.o obj/rsa.o
 
 
 #Every rule listed here as .PHONY is "phony": when you say you want that rule satisfied,
@@ -41,14 +41,14 @@ all : obj server client
 #
 #In this case, CLIENTOBJECTS is just obj/client.o. So, if obj/client.o doesn't exist or is out of date,
 #make will first look for a rule to build it. That rule is the 'obj/%.o' one, below; the % is a wildcard.
-server: $(SERVEROBJECTS) src/shared.h
+server: $(SERVEROBJECTS) src/shared.h src/rsa.h
 	$(CPP) $(COMPILERFLAGS) $^ -o $@ $(LINKLIBS)
-client: $(CLIENTOBJECTS) src/shared.h
+client: $(CLIENTOBJECTS) src/shared.h src/rsa.h
 	$(CPP) $(COMPILERFLAGS) $^ -o $@ $(LINKLIBS)
 
 
 clean :
-	$(RM) -rf obj client server
+	$(RM) -rf obj client server *.pem *.der *.key
 
 #$<: the first dependency in the list; here, src/%.c. (Of course, we could also have used $^).
 #The % sign means "match one or more characters". You specify it in the target, and when a file

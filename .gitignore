@@ -33,3 +33,5 @@
 
 client
 server
+
+*.pem

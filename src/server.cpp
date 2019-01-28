@@ -14,6 +14,7 @@
 #include <signal.h>
 #include <map>
 
+#include "rsa.h"
 #include "shared.h"
 
 using namespace std;
@@ -159,10 +160,11 @@ void openTCPPort() {
 
 
 int main(int argc, char** argv) {
-    if (argc != 1) {
-        cout << "Usage: " << argv[0] << endl;
+    if (argc != 2) {
+        cout << "Usage: " << argv[0] << " <username>" << endl;
         exit(1);
     }
 
-    openTCPPort();
+    generateRSAFiles(argv[1]);
+    // openTCPPort();
 }
