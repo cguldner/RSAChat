@@ -9,10 +9,10 @@
 #include <sys/socket.h>
 #include <iostream>
 #include <arpa/inet.h>
-#include <thread>
+#include <pthread.h>
 #include <sys/wait.h>
 #include <signal.h>
-#include <stdbool.h>
+#include <map>
 
 #include "shared.h"
 
@@ -23,38 +23,56 @@ const string SERVER_NAME = "John";
 
 struct sockaddr_storage their_addr; // connector's address information
 int sockfd;  // listen on sock_fd, new connection on new_fd
-char s[INET6_ADDRSTRLEN];
-bool client_disconnected = false;
+
+map<int, pair<pthread_t, pthread_t>> threadLookup;
 
 void sigchld_handler(int s) {
 	while(waitpid(-1, NULL, WNOHANG) > 0);
 }
 
-void listenForMessagesFromClient(int sockfd) {
+void *listenForMessagesFromClient(void *new_fd) {
     int numbytes;
     char buf[MAXDATASIZE];
+    int fd_int = *((int *) new_fd);
     while(1) {
-        if ((numbytes = recv(sockfd, buf, MAXDATASIZE-1, 0)) == -1) {
+        if ((numbytes = recv(fd_int, buf, MAXDATASIZE-1, 0)) == -1) {
             diep("Couldn't correctly get the data");
         }
         if (numbytes == 0) {
             perror("Client no longer connected, your buddy has left </3");
-            break;
+            close(fd_int);
+            // Kill the corresponding thread that is listening for user input
+            pthread_cancel(threadLookup[fd_int].second);
+            threadLookup.erase(fd_int);
+            pthread_exit(NULL);
         }
 
         buf[numbytes] = '\0';
 
         printf("server: received '%s'\n",buf);
+        if(new_fd != NULL) {
+            free(new_fd);       // Free down here so to make sure both threads have time to obtain data
+            new_fd = NULL;
+        }
     }
 }
 
-void listenForUserInput(int new_fd) {
+void *listenForUserInput(void *new_fd) {
+    int fd_int = *((int *) new_fd);
     while (1) {
         char message[MAXDATASIZE];
-        cin >> message;
 
-        if (send(new_fd, message, strlen(message), 0) == -1) {
-            perror("send");
+        if (!(cin.getline(message, MAXDATASIZE))) {
+            cin.clear(); // Reset stream
+        }
+
+        if (send(fd_int, message, strlen(message), 0) == -1) {
+            perror("Issue sending");
+            close(fd_int);
+            // Kill the corresponding thread that is listening for client messages
+            pthread_cancel(threadLookup[fd_int].first);
+            threadLookup.erase(fd_int);
+            pthread_exit(NULL);
         }
     }
 }
@@ -64,6 +82,7 @@ void openTCPPort() {
     struct sigaction sa;
     int yes=1;
     int rv;
+    char addr_info[INET6_ADDRSTRLEN];
 
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
@@ -112,21 +131,30 @@ void openTCPPort() {
 
     cout << "server: waiting for connections..." << endl;
 
-    socklen_t sin_size = sizeof their_addr;
-    int new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
+    while(1) {
+        pthread_t clientListener, inputListener;
+        socklen_t sin_size = sizeof their_addr;
+        int *new_fd = (int *)malloc(sizeof(*new_fd));
+        *new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
 
-    close(sockfd);
+        if (*new_fd == -1) {
+            diep("Couldn't accept the connection for some reason");
+        }
 
-    if (new_fd == -1) {
-        diep("Couldn't accept the connection for some reason");
+        inet_ntop(their_addr.ss_family, get_in_addr((struct sockaddr *)&their_addr), addr_info, sizeof addr_info);
+        printf("server: got connection from %s\n", addr_info);
+
+        int client_err = pthread_create(&clientListener, NULL, listenForMessagesFromClient, (void *)new_fd);
+        if (client_err) {
+            diep("Couldn't create thread to listen for messages from client");
+        }
+        int input_err = pthread_create(&inputListener, NULL, listenForUserInput, (void *)new_fd);
+        if (input_err) {
+            diep("Couldn't create thread to listen for user input");
+        }
+        // Push the threads to a map so they can be jointly killed
+        threadLookup[*new_fd] = make_pair(clientListener, inputListener);
     }
-
-    inet_ntop(their_addr.ss_family, get_in_addr((struct sockaddr *)&their_addr), s, sizeof s);
-    printf("server: got connection from %s\n", s);
-
-    thread messageListener(listenForMessagesFromClient, new_fd);
-    thread messageSender(listenForUserInput, new_fd);
-    while(1);
 }
 
 

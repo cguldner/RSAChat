@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
+#include <string>
 #include <string.h>
 #include <netdb.h>
 #include <sys/types.h>
@@ -22,7 +23,6 @@ const string CLIENT_NAME = "Janet";
 
 struct sockaddr_storage their_addr; // connector's address information
 int sockfd;  // listen on sock_fd, new connection on new_fd
-char s[INET6_ADDRSTRLEN];
 
 void listenForMessagesFromServer() {
     int numbytes;
@@ -44,7 +44,7 @@ void listenForMessagesFromServer() {
 void listenForUserInput() {
     while (1) {
         char message[MAXDATASIZE];
-        cin >> message;
+        cin.getline(message, MAXDATASIZE);
 
         if (send(sockfd, message, strlen(message), 0) == -1) {
             perror("send");
@@ -55,7 +55,7 @@ void listenForUserInput() {
 void openTCPPort() {
     struct addrinfo hints, *servinfo, *p;
     int rv;
-    char s[INET6_ADDRSTRLEN];
+    char addr_info[INET6_ADDRSTRLEN];
 
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
@@ -84,8 +84,8 @@ void openTCPPort() {
         exit(1);
     }
 
-    inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr), s, sizeof s);
-    printf("client: connecting to %s\n", s);
+    inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr), addr_info, sizeof addr_info);
+    printf("client: connecting to %s\n", addr_info);
 
     freeaddrinfo(servinfo); // all done with this structure
 

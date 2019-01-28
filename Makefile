@@ -1,6 +1,6 @@
 #If you use threads, add -pthread here.
 CPP = g++
-COMPILERFLAGS = -g -Wall -Wextra -Wno-sign-compare -std=c++11
+COMPILERFLAGS = -g -Wall -Wextra -Wno-sign-compare -Wshadow -Wno-unused-parameter -std=c++11
 
 #Any libraries you might need linked in.
 LINKLIBS = -lpthread
@@ -47,19 +47,8 @@ client: $(CLIENTOBJECTS) src/shared.h
 	$(CPP) $(COMPILERFLAGS) $^ -o $@ $(LINKLIBS)
 
 
-
-
-#talker: $(TALKEROBJECTS)
-#	$(CC) $(COMPILERFLAGS) $^ -o $@ $(LINKLIBS)
-
-#listener: $(LISTENEROBJECTS)
-#	$(CC) $(COMPILERFLAGS) $^ -o $@ $(LINKLIBS)
-
-
-#RM is a built-in variable that defaults to "rm -f".
 clean :
-#	$(RM) obj/*.o server client talker listener
-	$(RM) -rf obj rsa *.png
+	$(RM) -rf obj client server
 
 #$<: the first dependency in the list; here, src/%.c. (Of course, we could also have used $^).
 #The % sign means "match one or more characters". You specify it in the target, and when a file
