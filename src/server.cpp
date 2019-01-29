@@ -13,6 +13,7 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <map>
+#include <vector>
 
 #include "rsa.h"
 #include "shared.h"
@@ -20,7 +21,7 @@
 using namespace std;
 
 const char *SERVER_PORT = "3000";
-const string SERVER_NAME = "John";
+string server_name;
 
 struct sockaddr_storage their_addr; // connector's address information
 int sockfd;  // listen on sock_fd, new connection on new_fd
@@ -33,24 +34,42 @@ void sigchld_handler(int s) {
 
 void *listenForMessagesFromClient(void *new_fd) {
     int numbytes;
-    char buf[MAXDATASIZE];
+    char buf[MAXDATASIZE+1];
     int fd_int = *((int *) new_fd);
+    string client_username;
     while(1) {
-        if ((numbytes = recv(fd_int, buf, MAXDATASIZE-1, 0)) == -1) {
-            diep("Couldn't correctly get the data");
-        }
-        if (numbytes == 0) {
-            perror("Client no longer connected, your buddy has left </3");
-            close(fd_int);
-            // Kill the corresponding thread that is listening for user input
-            pthread_cancel(threadLookup[fd_int].second);
-            threadLookup.erase(fd_int);
-            pthread_exit(NULL);
+        string data_rcv;
+        do {
+            if ((numbytes = recv(fd_int, buf, MAXDATASIZE, 0)) == -1) {
+                diep("Couldn't correctly get the data");
+            }
+            if (numbytes == 0) {
+                perror((client_username + " has disconnected </3").c_str());
+                close(fd_int);
+                // Kill the corresponding thread that is listening for user input
+                pthread_cancel(threadLookup[fd_int].second);
+                threadLookup.erase(fd_int);
+                pthread_exit(NULL);
+            } else {
+                buf[numbytes] = '\0';
+                data_rcv.append(buf, numbytes);
+            }
+        } while (numbytes == MAXDATASIZE);
+
+        if (data_rcv.substr(0, 4) == USERNAME_HEADER) {
+            client_username = data_rcv.substr(4, numbytes-4);
+            cout << client_username << " connected to you!" << endl;
+
+            char usr[80];
+            strcpy(usr, USERNAME_HEADER);
+            strcat(usr, server_name.c_str());
+            if (send(fd_int, usr, strlen(usr), 0) == -1) {
+                perror("Couldn't send the username");
+            }
+        } else {
+            cout << client_username << ": " << data_rcv << endl;
         }
 
-        buf[numbytes] = '\0';
-
-        printf("server: received '%s'\n",buf);
         if(new_fd != NULL) {
             free(new_fd);       // Free down here so to make sure both threads have time to obtain data
             new_fd = NULL;
@@ -165,6 +184,7 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-    generateRSAFiles(argv[1]);
-    // openTCPPort();
+    server_name = argv[1];
+    // generateRSAFiles(argv[1]);
+    openTCPPort();
 }

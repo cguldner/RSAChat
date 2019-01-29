@@ -19,40 +19,49 @@ using namespace std;
 
 const char *SERVER_IP = "localhost";
 const char *SERVER_PORT = "3000";
-const string CLIENT_NAME = "Janet";
 
 struct sockaddr_storage their_addr; // connector's address information
 int sockfd;  // listen on sock_fd, new connection on new_fd
 
 void listenForMessagesFromServer() {
     int numbytes;
-    char buf[MAXDATASIZE];
+    char buf[MAXDATASIZE+1];
+    string server_username;
     while(1) {
-        if ((numbytes = recv(sockfd, buf, MAXDATASIZE-1, 0)) == -1) {
-            diep("Couldn't correctly get the data");
-        }
-        if (numbytes == 0) {
-            diep("Server no longer connected, your buddy has left </3");
-        }
+        string data_rcv;
+        do {
+            if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
+                diep("Couldn't correctly get the data");
+            }
+            if (numbytes == 0) {
+                diep((server_username + " has disconnected </3").c_str());
+            } else {
+                buf[numbytes] = '\0';
+                data_rcv.append(buf, numbytes);
+            }
+        } while (numbytes == MAXDATASIZE);
 
-        buf[numbytes] = '\0';
-
-        printf("client: received '%s'\n",buf);
+        if (data_rcv.substr(0, 4) == USERNAME_HEADER) {
+            server_username = data_rcv.substr(4, numbytes-4);
+            cout << "You are talking to " << server_username << endl;
+        } else {
+            cout << server_username << ": " << data_rcv << endl;
+        }
     }
 }
 
 void listenForUserInput() {
     while (1) {
-        char message[MAXDATASIZE];
-        cin.getline(message, MAXDATASIZE);
+        string message;
+        getline(cin, message);
 
-        if (send(sockfd, message, strlen(message), 0) == -1) {
+        if (send(sockfd, message.c_str(), message.length(), 0) == -1) {
             perror("send");
         }
     }
 }
 
-void openTCPPort() {
+void openTCPPort(char *username) {
     struct addrinfo hints, *servinfo, *p;
     int rv;
     char addr_info[INET6_ADDRSTRLEN];
@@ -80,7 +89,7 @@ void openTCPPort() {
     }
 
     if (p == NULL) {
-        cout << "Failed to connect to the server, try again later" << endl;
+        cout << "Failed to connect to the server, try again later!" << endl;
         exit(1);
     }
 
@@ -89,16 +98,23 @@ void openTCPPort() {
 
     freeaddrinfo(servinfo); // all done with this structure
 
+    char usr[80];
+    strcpy(usr, USERNAME_HEADER);
+    strcat(usr, username);
+    if (send(sockfd, usr, strlen(usr), 0) == -1) {
+        perror("Couldn't send the username");
+    }
+
     thread messageListener(listenForMessagesFromServer);
     thread messageSender(listenForUserInput);
     while(1);
 }
 
 int main(int argc, char** argv) {
-    if (argc != 1) {
-        cout << "Usage: " << argv[0] << endl;
+    if (argc != 2) {
+        cout << "Usage: " << argv[0] << " <username>" << endl;
         exit(1);
     }
 
-    openTCPPort();
+    openTCPPort(argv[1]);
 }
