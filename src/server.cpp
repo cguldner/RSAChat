@@ -14,6 +14,9 @@
 #include <signal.h>
 #include <map>
 #include <vector>
+#include <sstream>
+
+#include <boost/lexical_cast.hpp>
 
 #include "rsa.h"
 #include "shared.h"
@@ -21,7 +24,7 @@
 using namespace std;
 
 const char *SERVER_PORT = "3000";
-string server_name;
+string server_name, client_name;
 
 struct sockaddr_storage their_addr; // connector's address information
 int sockfd;  // listen on sock_fd, new connection on new_fd
@@ -33,18 +36,18 @@ void sigchld_handler(int s) {
 }
 
 void *listenForMessagesFromClient(void *new_fd) {
-    int numbytes;
+    int numbytes, totalBytes;
     char buf[MAXDATASIZE+1];
     int fd_int = *((int *) new_fd);
-    string client_username;
     while(1) {
         string data_rcv;
+        totalBytes = 0;
         do {
             if ((numbytes = recv(fd_int, buf, MAXDATASIZE, 0)) == -1) {
                 diep("Couldn't correctly get the data");
             }
             if (numbytes == 0) {
-                perror((client_username + " has disconnected </3").c_str());
+                perror((client_name + " has disconnected </3").c_str());
                 close(fd_int);
                 // Kill the corresponding thread that is listening for user input
                 pthread_cancel(threadLookup[fd_int].second);
@@ -54,20 +57,20 @@ void *listenForMessagesFromClient(void *new_fd) {
                 buf[numbytes] = '\0';
                 data_rcv.append(buf, numbytes);
             }
+            totalBytes += numbytes;
         } while (numbytes == MAXDATASIZE);
 
-        if (data_rcv.substr(0, 4) == USERNAME_HEADER) {
-            client_username = data_rcv.substr(4, numbytes-4);
-            cout << client_username << " connected to you!" << endl;
-
-            char usr[80];
-            strcpy(usr, USERNAME_HEADER);
-            strcat(usr, server_name.c_str());
-            if (send(fd_int, usr, strlen(usr), 0) == -1) {
-                perror("Couldn't send the username");
-            }
+        // TODO: Only send if needed
+        if (data_rcv[0] == INIT_P) {
+            client_name = saveRSAPublicKey(data_rcv, totalBytes);
+            sendRSAPublicKey(server_name.c_str(), fd_int);
+        } else if (data_rcv[0] == MSG_P) {
+            communication_info *info = (communication_info *) malloc(totalBytes);
+            memcpy(info, &data_rcv[0], totalBytes);
+            string decrypted = decryptMessageWithPrivateKey((Integer)info->msg, server_name);
+            cout << client_name << ": " << decrypted << endl;
         } else {
-            cout << client_username << ": " << data_rcv << endl;
+            cout << "Unknown message format" << endl;
         }
 
         if(new_fd != NULL) {
@@ -80,13 +83,18 @@ void *listenForMessagesFromClient(void *new_fd) {
 void *listenForUserInput(void *new_fd) {
     int fd_int = *((int *) new_fd);
     while (1) {
-        char message[MAXDATASIZE];
+        string message;
 
-        if (!(cin.getline(message, MAXDATASIZE))) {
+        if (!(getline(cin, message))) {
             cin.clear(); // Reset stream
         }
 
-        if (send(fd_int, message, strlen(message), 0) == -1) {
+        communication_info info = { MSG_P, {}, {}, {}};
+        Integer encrypted = encryptMessageWithPublicKey(message, client_name);
+        string encrypted_str = boost::lexical_cast<std::string>(encrypted);
+        memcpy(&(info.msg), &encrypted_str.c_str()[0], encrypted_str.length());
+
+        if (send(fd_int, &info, sizeof(communication_info), 0) == -1) {
             perror("Issue sending");
             close(fd_int);
             // Kill the corresponding thread that is listening for client messages
@@ -183,8 +191,17 @@ int main(int argc, char** argv) {
         cout << "Usage: " << argv[0] << " <username>" << endl;
         exit(1);
     }
-
     server_name = argv[1];
-    // generateRSAFiles(argv[1]);
+    if (server_name.length() > MAX_USERNAME_LENGTH) {
+        cout << "Username can be a max of " << MAX_USERNAME_LENGTH << " characters long" << endl;
+    }
+
+    generateRSAKeys(server_name);
+
+    // Integer encrypted = encryptMessageWithPublicKey("f", server_name);
+    // cout << encrypted << endl;
+    // cout << decryptMessageWithPrivateKey(encrypted, server_name) << endl;
+
+
     openTCPPort();
 }

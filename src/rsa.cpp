@@ -1,29 +1,96 @@
 #include "rsa.h"
 
-using BN_ptr = std::unique_ptr<BIGNUM, decltype(&::BN_free)>;
-using RSA_ptr = std::unique_ptr<RSA, decltype(&::RSA_free)>;
-using EVP_KEY_ptr = std::unique_ptr<EVP_PKEY, decltype(&::EVP_PKEY_free)>;
-using BIO_FILE_ptr = std::unique_ptr<BIO, decltype(&::BIO_free)>;
+using namespace boost;
 
-void generateRSAFiles(char * username) {
-    RSA_ptr rsa_key(RSA_new(), ::RSA_free);
-    BN_ptr bn(BN_new(), ::BN_free);
-    BN_set_word(bn.get(), RSA_F4);
+AutoSeededRandomPool rnd;
 
-    char privKeyFileName[80], pubKeyFileName[80];
-    strcpy(privKeyFileName, username);
-    strcat(privKeyFileName, "private.pem");
-    BIO_FILE_ptr privKey(BIO_new_file(privKeyFileName, "w"), ::BIO_free);
+ByteQueue loadKeyFileBytes(string keyPath) {
+    ByteQueue bytes;
+    try {
+        FileSource file(keyPath.c_str(), true, new Base64Decoder);
+        file.TransferTo(bytes);
+    } catch (FileStore::OpenErr e) {
+        cout << "\"" << keyPath << "\" not found, needs to be generated" << endl;
+        exit(1);
+    }
+    bytes.MessageEnd();
+    return bytes;
+}
 
-    strcpy(pubKeyFileName, username);
-    strcat(pubKeyFileName, "public.pem");
-    BIO_FILE_ptr pubKey(BIO_new_file(pubKeyFileName, "w"), ::BIO_free);
+void generateRSAKeys(string username) {
+   string pathPrefix = keyFolder + username;
+   if ( filesystem::exists(pathPrefix + privKeyName) && filesystem::exists(pathPrefix + pubKeyName) ) {
+      return;
+   }
+   filesystem::path dir(keyFolder.c_str());
+   filesystem::create_directories(dir);
 
-    EVP_KEY_ptr pkey(EVP_PKEY_new(), ::EVP_PKEY_free);
-    EVP_PKEY_set1_RSA(pkey.get(), rsa_key.get());
+   // InvertibleRSAFunction is used directly only because the private key
+   // won't actually be used to perform any cryptographic operation;
+   // otherwise, an appropriate typedef'ed type from rsa.h would have been used.
+   RSA::PrivateKey rsaPrivate;
+   rsaPrivate.GenerateRandomWithKeySize(rnd, 2048);
 
-    int rc = RSA_generate_key_ex(rsa_key.get(), 2048, bn.get(), NULL);
+   // With the current version of Crypto++, MessageEnd() needs to be called
+   // explicitly because Base64Encoder doesn't flush its buffer on destruction.
+   Base64Encoder privkeysink(new FileSink((pathPrefix + privKeyName).c_str()));
+   rsaPrivate.DEREncode(privkeysink);
+   privkeysink.MessageEnd();
 
-    PEM_write_bio_PrivateKey(privKey.get(), pkey.get(), NULL, NULL, 0, NULL, NULL);
-    PEM_write_bio_PUBKEY(pubKey.get(), pkey.get());
+   // Suppose we want to store the public key separately,
+   // possibly because we will be sending the public key to a third party.
+   RSA::PublicKey rsaPublic(rsaPrivate);
+
+   Base64Encoder pubkeysink(new FileSink((pathPrefix + pubKeyName).c_str()));
+   rsaPublic.DEREncode(pubkeysink);
+   pubkeysink.MessageEnd();
+}
+
+// TODO: Don't load from file every encryption/decryption
+Integer encryptMessageWithPublicKey(string message, string username) {
+    ByteQueue bytes = loadKeyFileBytes((savedKeyFolder + username + pubKeyName).c_str());
+    RSA::PublicKey pubKey;
+    pubKey.Load(bytes);
+
+    Integer message_int = Integer((const byte *)message.data(), message.size());
+    Integer encrypted = pubKey.ApplyFunction(message_int);
+    return encrypted;
+}
+
+string decryptMessageWithPrivateKey(Integer encrypted, string username) {
+    ByteQueue bytes = loadKeyFileBytes((keyFolder + username + privKeyName).c_str());
+    RSA::PrivateKey privKey;
+    privKey.Load(bytes);
+
+    string recovered;
+
+    Integer r = privKey.CalculateInverse(rnd, encrypted);
+    recovered.resize(r.MinEncodedSize());
+    r.Encode((byte *)&recovered.data()[0], recovered.size());
+    return recovered;
+}
+
+void sendRSAPublicKey(const char *username, int sock_fd) {
+    std::ifstream t((keyFolder + username + pubKeyName).c_str());
+    std::stringstream buffer;
+    buffer << t.rdbuf();
+    communication_info info = { INIT_P, {}, {}, {} };
+    memcpy(info.username, username, strlen(username));
+    memcpy(info.pubKey, &buffer.str()[0], buffer.str().length());
+    if (send(sock_fd, &info, sizeof(communication_info), 0) == -1) {
+      perror("Couldn't send the communication info");
+    }
+}
+
+char *saveRSAPublicKey(string data_rcv, int totalBytes) {
+    communication_info *info = (communication_info *) malloc(totalBytes);
+    memcpy(info, &data_rcv[0], totalBytes);
+    cout << "You are now connected to " << info->username << endl;
+
+    filesystem::path dir(savedKeyFolder);
+    filesystem::create_directories(dir);
+    ofstream outfile((savedKeyFolder + info->username + pubKeyName).c_str());
+    outfile << info->pubKey;
+
+    return info->username;
 }

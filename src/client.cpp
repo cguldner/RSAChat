@@ -11,7 +11,11 @@
 #include <iostream>
 #include <arpa/inet.h>
 #include <thread>
+#include <sstream>
 
+#include <boost/lexical_cast.hpp>
+
+#include "rsa.h"
 #include "shared.h"
 
 using namespace std;
@@ -19,33 +23,39 @@ using namespace std;
 
 const char *SERVER_IP = "localhost";
 const char *SERVER_PORT = "3000";
+string server_name, client_name;
 
 struct sockaddr_storage their_addr; // connector's address information
 int sockfd;  // listen on sock_fd, new connection on new_fd
 
 void listenForMessagesFromServer() {
-    int numbytes;
+    int numbytes, totalBytes;
     char buf[MAXDATASIZE+1];
-    string server_username;
     while(1) {
         string data_rcv;
+        totalBytes = 0;
         do {
             if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
                 diep("Couldn't correctly get the data");
             }
             if (numbytes == 0) {
-                diep((server_username + " has disconnected </3").c_str());
+                diep((server_name + " has disconnected </3").c_str());
             } else {
                 buf[numbytes] = '\0';
                 data_rcv.append(buf, numbytes);
             }
+            totalBytes += numbytes;
         } while (numbytes == MAXDATASIZE);
 
-        if (data_rcv.substr(0, 4) == USERNAME_HEADER) {
-            server_username = data_rcv.substr(4, numbytes-4);
-            cout << "You are talking to " << server_username << endl;
+        if (data_rcv[0] == INIT_P) {
+            server_name = saveRSAPublicKey(data_rcv, totalBytes);
+        } else if (data_rcv[0] == MSG_P) {
+            communication_info *info = (communication_info *) malloc(totalBytes);
+            memcpy(info, &data_rcv[0], totalBytes);
+            string decrypted = decryptMessageWithPrivateKey((Integer)info->msg, client_name);
+            cout << server_name << ": " << decrypted << endl;
         } else {
-            cout << server_username << ": " << data_rcv << endl;
+            cout << "Unknown message format" << endl;
         }
     }
 }
@@ -55,13 +65,18 @@ void listenForUserInput() {
         string message;
         getline(cin, message);
 
-        if (send(sockfd, message.c_str(), message.length(), 0) == -1) {
+        communication_info info = { MSG_P, {}, {}, {}};
+        Integer encrypted = encryptMessageWithPublicKey(message, server_name);
+        string encrypted_str = boost::lexical_cast<std::string>(encrypted);
+        memcpy(&(info.msg), &encrypted_str.c_str()[0], encrypted_str.length());
+
+        if (send(sockfd, &info, sizeof(communication_info), 0) == -1) {
             perror("send");
         }
     }
 }
 
-void openTCPPort(char *username) {
+void openTCPPort(char user[MAX_USERNAME_LENGTH]) {
     struct addrinfo hints, *servinfo, *p;
     int rv;
     char addr_info[INET6_ADDRSTRLEN];
@@ -98,12 +113,7 @@ void openTCPPort(char *username) {
 
     freeaddrinfo(servinfo); // all done with this structure
 
-    char usr[80];
-    strcpy(usr, USERNAME_HEADER);
-    strcat(usr, username);
-    if (send(sockfd, usr, strlen(usr), 0) == -1) {
-        perror("Couldn't send the username");
-    }
+    sendRSAPublicKey(user, sockfd);
 
     thread messageListener(listenForMessagesFromServer);
     thread messageSender(listenForUserInput);
@@ -115,6 +125,11 @@ int main(int argc, char** argv) {
         cout << "Usage: " << argv[0] << " <username>" << endl;
         exit(1);
     }
+    client_name = argv[1];
+    if (client_name.length() > MAX_USERNAME_LENGTH) {
+        cout << "Username can be a max of " << MAX_USERNAME_LENGTH << " characters long" << endl;
+    }
 
+    generateRSAKeys(client_name);
     openTCPPort(argv[1]);
 }

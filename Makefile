@@ -1,9 +1,9 @@
 #If you use threads, add -pthread here.
 CPP = g++
-COMPILERFLAGS = -g -Wall -Wextra -Wno-sign-compare -Wshadow -Wno-unused-parameter -std=c++11
+COMPILERFLAGS = -ggdb -Wall -Wextra -Wno-sign-compare -Wshadow -Wno-unused-parameter -std=c++11
 
 #Any libraries you might need linked in.
-LINKLIBS = -lpthread -lcrypto -lssl
+LINKLIBS = -lpthread -lcrypto++ -lboost_filesystem -lboost_system
 
 #The components of each program. When you create a src/foo.c source file, add obj/foo.o here, separated
 #by a space (e.g. SOMEOBJECTS = obj/foo.o obj/bar.o obj/baz.o).
