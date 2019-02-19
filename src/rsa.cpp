@@ -2,7 +2,7 @@
 
 using namespace boost;
 
-AutoSeededRandomPool rnd;
+AutoSeededRandomPool rng;
 
 ByteQueue loadKeyFileBytes(string keyPath) {
     ByteQueue bytes;
@@ -29,7 +29,7 @@ void generateRSAKeys(string username) {
    // won't actually be used to perform any cryptographic operation;
    // otherwise, an appropriate typedef'ed type from rsa.h would have been used.
    RSA::PrivateKey rsaPrivate;
-   rsaPrivate.GenerateRandomWithKeySize(rnd, 2048);
+   rsaPrivate.GenerateRandomWithKeySize(rng, 2048);
 
    // With the current version of Crypto++, MessageEnd() needs to be called
    // explicitly because Base64Encoder doesn't flush its buffer on destruction.
@@ -47,27 +47,38 @@ void generateRSAKeys(string username) {
 }
 
 // TODO: Don't load from file every encryption/decryption
-Integer encryptMessageWithPublicKey(string message, string username) {
+string encryptMessageWithPublicKey(string message, string username) {
     ByteQueue bytes = loadKeyFileBytes((savedKeyFolder + username + pubKeyName).c_str());
     RSA::PublicKey pubKey;
     pubKey.Load(bytes);
+    RSAES_OAEP_SHA_Encryptor e( pubKey );
+    string encrypted;
 
-    Integer message_int = Integer((const byte *)message.data(), message.size());
-    Integer encrypted = pubKey.ApplyFunction(message_int);
+    StringSource ss1( message, true,
+       new PK_EncryptorFilter( rng, e,
+           new StringSink( encrypted )
+       )
+    );
     return encrypted;
 }
 
-string decryptMessageWithPrivateKey(Integer encrypted, string username) {
+string decryptMessageWithPrivateKey(char (&encrypted)[256], string username) {
     ByteQueue bytes = loadKeyFileBytes((keyFolder + username + privKeyName).c_str());
     RSA::PrivateKey privKey;
     privKey.Load(bytes);
 
     string recovered;
+    RSAES_OAEP_SHA_Decryptor d( privKey );
 
-    Integer r = privKey.CalculateInverse(rnd, encrypted);
-    recovered.resize(r.MinEncodedSize());
-    r.Encode((byte *)&recovered.data()[0], recovered.size());
-    return recovered;
+    string encrypted_str(encrypted, 256);
+
+    StringSource ss2( encrypted_str, true,
+        new PK_DecryptorFilter( rng, d,
+            new StringSink( recovered )
+        )
+     );
+
+     return recovered;
 }
 
 void sendRSAPublicKey(const char *username, int sock_fd) {

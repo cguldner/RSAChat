@@ -67,7 +67,7 @@ void *listenForMessagesFromClient(void *new_fd) {
         } else if (data_rcv[0] == MSG_P) {
             communication_info *info = (communication_info *) malloc(totalBytes);
             memcpy(info, &data_rcv[0], totalBytes);
-            string decrypted = decryptMessageWithPrivateKey((Integer)info->msg, server_name);
+            string decrypted = decryptMessageWithPrivateKey(info->msg, server_name);
             cout << client_name << ": " << decrypted << endl;
         } else {
             cout << "Unknown message format" << endl;
@@ -89,12 +89,12 @@ void *listenForUserInput(void *new_fd) {
             cin.clear(); // Reset stream
         }
 
-        communication_info info = { MSG_P, {}, {}, {}};
-        Integer encrypted = encryptMessageWithPublicKey(message, client_name);
-        string encrypted_str = boost::lexical_cast<std::string>(encrypted);
-        memcpy(&(info.msg), &encrypted_str.c_str()[0], encrypted_str.length());
+        communication_info *info = (communication_info *)(malloc(sizeof(communication_info)));
+        info->type = MSG_P;
+        string encrypted = encryptMessageWithPublicKey(message, client_name);
+        memcpy(info->msg, &encrypted.c_str()[0], encrypted.length());
 
-        if (send(fd_int, &info, sizeof(communication_info), 0) == -1) {
+        if (send(fd_int, info, sizeof(communication_info), 0) == -1) {
             perror("Issue sending");
             close(fd_int);
             // Kill the corresponding thread that is listening for client messages

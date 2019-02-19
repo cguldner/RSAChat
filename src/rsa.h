@@ -27,8 +27,8 @@ const string privKeyName = "private.key";
 
 ByteQueue loadKeyFileBytes(string keyPath);
 void generateRSAKeys(string username);
-Integer encryptMessageWithPublicKey(string message, string username);
-string decryptMessageWithPrivateKey(Integer encrypted, string username);
+string encryptMessageWithPublicKey(string message, string username);
+string decryptMessageWithPrivateKey(char (&encrypted)[256], string username);
 void sendRSAPublicKey(const char *username, int sock_fd);
 char *saveRSAPublicKey(string data_rcv, int totalBytes);
 

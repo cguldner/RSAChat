@@ -52,7 +52,7 @@ void listenForMessagesFromServer() {
         } else if (data_rcv[0] == MSG_P) {
             communication_info *info = (communication_info *) malloc(totalBytes);
             memcpy(info, &data_rcv[0], totalBytes);
-            string decrypted = decryptMessageWithPrivateKey((Integer)info->msg, client_name);
+            string decrypted = decryptMessageWithPrivateKey(info->msg, client_name);
             cout << server_name << ": " << decrypted << endl;
         } else {
             cout << "Unknown message format" << endl;
@@ -66,9 +66,8 @@ void listenForUserInput() {
         getline(cin, message);
 
         communication_info info = { MSG_P, {}, {}, {}};
-        Integer encrypted = encryptMessageWithPublicKey(message, server_name);
-        string encrypted_str = boost::lexical_cast<std::string>(encrypted);
-        memcpy(&(info.msg), &encrypted_str.c_str()[0], encrypted_str.length());
+        string encrypted = encryptMessageWithPublicKey(message, server_name);
+        memcpy(&(info.msg), &encrypted.c_str()[0], encrypted.length());
 
         if (send(sockfd, &info, sizeof(communication_info), 0) == -1) {
             perror("send");

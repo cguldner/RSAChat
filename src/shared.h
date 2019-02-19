@@ -17,12 +17,14 @@
 #define INIT_P 21
 #define MSG_P 15
 
+using namespace std;
+
 
 typedef struct communication_info {
     char type;
     char username[MAX_USERNAME_LENGTH];
     char pubKey[PUBLIC_KEY_LENGTH];
-    char msg[1000];
+    char msg[256];
 } communication_info;
 
 typedef struct comm_message {
